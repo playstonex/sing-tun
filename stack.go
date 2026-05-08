@@ -22,6 +22,14 @@ type Stack interface {
 	Close() error
 }
 
+type PacketInterceptor interface {
+	InterceptPacket(destination netip.Addr, packet []byte) bool
+}
+
+type PacketInterceptMatcher interface {
+	ShouldInterceptPacket(destination netip.Addr) bool
+}
+
 type StackOptions struct {
 	Context                context.Context
 	Tun                    Tun
@@ -34,6 +42,7 @@ type StackOptions struct {
 	IncludeAllNetworks     bool
 	InterfaceFinder        control.InterfaceFinder
 	EnforceBindInterface   bool
+	PacketInterceptor      PacketInterceptor
 }
 
 func NewStack(

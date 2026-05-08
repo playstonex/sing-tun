@@ -36,6 +36,7 @@ type GVisor struct {
 	broadcastAddr        netip.Addr
 	handler              Handler
 	logger               logger.Logger
+	packetInterceptor    PacketInterceptor
 	stack                *stack.Stack
 	endpoint             stack.LinkEndpoint
 }
@@ -76,6 +77,7 @@ func NewGVisor(
 		broadcastAddr:        BroadcastAddr(options.TunOptions.Inet4Address),
 		handler:              options.Handler,
 		logger:               options.Logger,
+		packetInterceptor:    options.PacketInterceptor,
 	}
 	return gStack, nil
 }
@@ -85,7 +87,12 @@ func (t *GVisor) Start() error {
 	if err != nil {
 		return err
 	}
-	linkEndpoint = &LinkEndpointFilter{linkEndpoint, t.broadcastAddr, t.tun}
+	linkEndpoint = &LinkEndpointFilter{
+		LinkEndpoint:     linkEndpoint,
+		BroadcastAddress: t.broadcastAddr,
+		Writer:           t.tun,
+		Interceptor:      t.packetInterceptor,
+	}
 	nicOptions.DisableAutoICMPReplay = true
 	ipStack, err := NewGVisorStackWithOptions(linkEndpoint, nicOptions)
 	if err != nil {
