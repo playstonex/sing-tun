@@ -46,7 +46,7 @@ import (
 	"github.com/metacubex/gvisor/pkg/tcpip"
 	"github.com/metacubex/gvisor/pkg/tcpip/header"
 	"github.com/metacubex/gvisor/pkg/tcpip/stack"
-	"github.com/metacubex/sing-tun/internal/rawfile_darwin"
+	"github.com/playstonex/sing-tun/internal/rawfile_darwin"
 	"github.com/metacubex/sing/common"
 
 	"golang.org/x/sys/unix"

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/metacubex/gvisor/pkg/rand"
-	"github.com/metacubex/sing-tun/internal/gtcpip/header"
-	"github.com/metacubex/sing-tun/ping"
+	"github.com/playstonex/sing-tun/internal/gtcpip/header"
+	"github.com/playstonex/sing-tun/ping"
 	"github.com/metacubex/sing/common/buf"
 
 	"github.com/stretchr/testify/require"

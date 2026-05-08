@@ -17,7 +17,7 @@ package header
 import (
 	"net/netip"
 
-	tcpip "github.com/metacubex/sing-tun/internal/gtcpip"
+	tcpip "github.com/playstonex/sing-tun/internal/gtcpip"
 )
 
 const (

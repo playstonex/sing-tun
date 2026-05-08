@@ -23,7 +23,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/metacubex/sing-tun/internal/gtcpip"
+	"github.com/playstonex/sing-tun/internal/gtcpip"
 	"github.com/metacubex/sing/common"
 )
 

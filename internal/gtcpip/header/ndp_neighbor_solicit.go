@@ -14,7 +14,7 @@
 
 package header
 
-import "github.com/metacubex/sing-tun/internal/gtcpip"
+import "github.com/playstonex/sing-tun/internal/gtcpip"
 
 // NDPNeighborSolicit is an NDP Neighbor Solicitation message. It will only
 // contain the body of an ICMPv6 packet.

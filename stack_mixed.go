@@ -8,7 +8,7 @@ import (
 	"github.com/metacubex/gvisor/pkg/tcpip/link/channel"
 	"github.com/metacubex/gvisor/pkg/tcpip/stack"
 	"github.com/metacubex/gvisor/pkg/tcpip/transport/udp"
-	"github.com/metacubex/sing-tun/internal/gtcpip/header"
+	"github.com/playstonex/sing-tun/internal/gtcpip/header"
 	"github.com/metacubex/sing/common/buf"
 	E "github.com/metacubex/sing/common/exceptions"
 )

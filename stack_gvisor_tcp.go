@@ -13,7 +13,7 @@ import (
 	"github.com/metacubex/gvisor/pkg/tcpip/stack"
 	"github.com/metacubex/gvisor/pkg/tcpip/transport/tcp"
 	"github.com/metacubex/gvisor/pkg/waiter"
-	"github.com/metacubex/sing-tun/internal/gtcpip/checksum"
+	"github.com/playstonex/sing-tun/internal/gtcpip/checksum"
 	"github.com/metacubex/sing/common"
 	M "github.com/metacubex/sing/common/metadata"
 )

@@ -13,7 +13,7 @@ import (
 	"github.com/metacubex/gvisor/pkg/tcpip/stack"
 	"github.com/metacubex/gvisor/pkg/tcpip/transport"
 	"github.com/metacubex/gvisor/pkg/waiter"
-	"github.com/metacubex/sing-tun"
+	"github.com/playstonex/sing-tun"
 	"github.com/metacubex/sing/common"
 	"github.com/metacubex/sing/common/buf"
 	E "github.com/metacubex/sing/common/exceptions"

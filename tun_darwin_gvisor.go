@@ -6,8 +6,8 @@ import (
 	"github.com/metacubex/gvisor/pkg/tcpip/header"
 	"github.com/metacubex/gvisor/pkg/tcpip/link/qdisc/fifo"
 	"github.com/metacubex/gvisor/pkg/tcpip/stack"
-	"github.com/metacubex/sing-tun/internal/fdbased_darwin"
-	"github.com/metacubex/sing-tun/internal/rawfile_darwin"
+	"github.com/playstonex/sing-tun/internal/fdbased_darwin"
+	"github.com/playstonex/sing-tun/internal/rawfile_darwin"
 
 	"golang.org/x/sys/unix"
 )

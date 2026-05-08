@@ -19,8 +19,8 @@ import (
 	"github.com/metacubex/gvisor/pkg/tcpip"
 	"github.com/metacubex/gvisor/pkg/tcpip/stack"
 	"github.com/metacubex/gvisor/pkg/tcpip/stack/gro"
-	"github.com/metacubex/sing-tun/internal/rawfile_darwin"
-	"github.com/metacubex/sing-tun/internal/stopfd_darwin"
+	"github.com/playstonex/sing-tun/internal/rawfile_darwin"
+	"github.com/playstonex/sing-tun/internal/stopfd_darwin"
 
 	"golang.org/x/sys/unix"
 )

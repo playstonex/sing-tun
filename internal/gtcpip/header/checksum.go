@@ -20,8 +20,8 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/metacubex/sing-tun/internal/gtcpip"
-	"github.com/metacubex/sing-tun/internal/gtcpip/checksum"
+	"github.com/playstonex/sing-tun/internal/gtcpip"
+	"github.com/playstonex/sing-tun/internal/gtcpip/checksum"
 )
 
 // PseudoHeaderChecksum calculates the pseudo-header checksum for the given

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/metacubex/sing-tun/ping"
+	"github.com/playstonex/sing-tun/ping"
 	"github.com/metacubex/sing/common/logger"
 
 	"github.com/stretchr/testify/require"

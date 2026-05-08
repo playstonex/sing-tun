@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/metacubex/sing-tun/internal/winfw"
+	"github.com/playstonex/sing-tun/internal/winfw"
 
 	"golang.org/x/sys/windows"
 )

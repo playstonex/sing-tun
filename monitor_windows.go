@@ -4,7 +4,7 @@ import (
 	"net/netip"
 	"sync"
 
-	"github.com/metacubex/sing-tun/internal/winipcfg"
+	"github.com/playstonex/sing-tun/internal/winipcfg"
 	E "github.com/metacubex/sing/common/exceptions"
 	"github.com/metacubex/sing/common/logger"
 	"github.com/metacubex/sing/common/x/list"

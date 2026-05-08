@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"net/netip"
 
-	"github.com/metacubex/sing-tun/internal/gtcpip"
+	"github.com/playstonex/sing-tun/internal/gtcpip"
 )
 
 const (

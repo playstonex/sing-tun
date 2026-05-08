@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/metacubex/sing-tun/internal/gtcpip/header"
+	"github.com/playstonex/sing-tun/internal/gtcpip/header"
 	"github.com/metacubex/sing/common"
 	"github.com/metacubex/sing/common/buf"
 	"github.com/metacubex/sing/common/control"

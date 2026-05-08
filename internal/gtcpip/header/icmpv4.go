@@ -17,8 +17,8 @@ package header
 import (
 	"encoding/binary"
 
-	"github.com/metacubex/sing-tun/internal/gtcpip"
-	"github.com/metacubex/sing-tun/internal/gtcpip/checksum"
+	"github.com/playstonex/sing-tun/internal/gtcpip"
+	"github.com/playstonex/sing-tun/internal/gtcpip/checksum"
 )
 
 // ICMPv4 represents an ICMPv4 header stored in a byte array.
