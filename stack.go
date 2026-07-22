@@ -36,6 +36,7 @@ type StackOptions struct {
 	TunOptions             Options
 	EndpointIndependentNat bool
 	UDPTimeout             time.Duration
+	ICMPTimeout            time.Duration
 	Handler                Handler
 	Logger                 logger.Logger
 	ForwarderBindInterface bool
