@@ -150,10 +150,6 @@ type Options struct {
 	// include CapabilitySaveRestore
 	SaveRestore bool
 
-	// DisconnectOk if true, indicates that this NIC capability set should
-	// include CapabilityDisconnectOk.
-	DisconnectOk bool
-
 	// TXChecksumOffload if true, indicates that this endpoints capability
 	// set should include CapabilityTXChecksumOffload.
 	TXChecksumOffload bool
@@ -201,10 +197,6 @@ func New(opts *Options) (stack.LinkEndpoint, error) {
 
 	if opts.SaveRestore {
 		caps |= stack.CapabilitySaveRestore
-	}
-
-	if opts.DisconnectOk {
-		caps |= stack.CapabilityDisconnectOk
 	}
 
 	if len(opts.FDs) == 0 {
