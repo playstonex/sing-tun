@@ -59,6 +59,8 @@ func NewStack(
 		} else {
 			return NewSystem(options)
 		}
+	case "mips":
+		return NewMipstack(options)
 	case "gvisor":
 		return NewGVisor(options)
 	case "mixed":

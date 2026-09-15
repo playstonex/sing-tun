@@ -39,10 +39,11 @@ type defaultInterfaceMonitor struct {
 	overrideAndroidVPN    bool
 	underNetworkExtension bool
 	defaultInterface      atomic.Pointer[control.Interface]
-	androidVPNEnabled     bool
-	noRoute               bool
+	androidVPNEnabled     atomic.Bool
+	noRoute               atomic.Bool
 	networkMonitor        NetworkUpdateMonitor
 	checkUpdateTimer      *time.Timer
+	checkAccess           sync.Mutex
 	element               *list.Element[NetworkUpdateCallback]
 	access                sync.Mutex
 	callbacks             list.List[DefaultInterfaceUpdateCallback]
@@ -60,12 +61,14 @@ func NewDefaultInterfaceMonitor(networkMonitor NetworkUpdateMonitor, logger logg
 }
 
 func (m *defaultInterfaceMonitor) Start() error {
-	m.postCheckUpdate()
 	m.element = m.networkMonitor.RegisterCallback(m.delayCheckUpdate)
+	m.postCheckUpdate()
 	return nil
 }
 
 func (m *defaultInterfaceMonitor) delayCheckUpdate() {
+	m.access.Lock()
+	defer m.access.Unlock()
 	if m.checkUpdateTimer == nil {
 		m.checkUpdateTimer = time.AfterFunc(time.Second, m.postCheckUpdate)
 	} else {
@@ -74,22 +77,26 @@ func (m *defaultInterfaceMonitor) delayCheckUpdate() {
 }
 
 func (m *defaultInterfaceMonitor) postCheckUpdate() {
+	m.checkAccess.Lock()
+	defer m.checkAccess.Unlock()
 	err := m.interfaceFinder.Update()
 	if err != nil {
 		m.logger.Error("update interface: ", err)
+		m.delayCheckUpdate()
 		return
 	}
 	err = m.checkUpdate()
 	if errors.Is(err, ErrNoRoute) {
-		if !m.noRoute {
-			m.noRoute = true
+		if !m.noRoute.Load() {
+			m.noRoute.Store(true)
 			m.defaultInterface.Store(nil)
 			m.emit(nil, 0)
 		}
 	} else if err != nil {
 		m.logger.Error("check interface: ", err)
+		m.delayCheckUpdate()
 	} else {
-		m.noRoute = false
+		m.noRoute.Store(false)
 	}
 }
 
@@ -109,7 +116,7 @@ func (m *defaultInterfaceMonitor) OverrideAndroidVPN() bool {
 }
 
 func (m *defaultInterfaceMonitor) AndroidVPNEnabled() bool {
-	return m.androidVPNEnabled
+	return m.androidVPNEnabled.Load()
 }
 
 func (m *defaultInterfaceMonitor) RegisterCallback(callback DefaultInterfaceUpdateCallback) *list.Element[DefaultInterfaceUpdateCallback] {
