@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/metacubex/mipstack"
-	"github.com/metacubex/sing-tun/internal/gtcpip/header"
+	"github.com/playstonex/sing-tun/internal/gtcpip/header"
 	E "github.com/metacubex/sing/common/exceptions"
 	"github.com/metacubex/sing/common/logger"
 )
@@ -23,6 +23,7 @@ type Mipstack struct {
 	broadcastAddr        netip.Addr
 	icmpMapping          *DirectRouteMapping
 	handler              Handler
+	packetInterceptor    PacketInterceptor
 	logger               logger.Logger
 	stack                *mipstack.Stack
 	icmpSlots            chan struct{}
@@ -53,6 +54,7 @@ func NewMipstack(options StackOptions) (Stack, error) {
 		icmpMapping:          NewDirectRouteMapping(options.ICMPTimeout),
 		icmpSlots:            make(chan struct{}, 16),
 		handler:              options.Handler,
+		packetInterceptor:    options.PacketInterceptor,
 		logger:               options.Logger,
 	}
 	return s, nil
@@ -230,6 +232,14 @@ func (s *Mipstack) processPacket(packet []byte, offset int) {
 			s.logger.Trace(E.Cause(err, "write packet"))
 		}
 		return
+	}
+	// Offer the packet to the interceptor before any stack processing, in the
+	// same position LinkEndpointFilter uses. The buffer is copied because the
+	// read loop reuses it and an interceptor may rewrite or retain the packet.
+	if shouldInterceptPacket(s.packetInterceptor, destination) && len(ipPacket) > 0 {
+		if s.packetInterceptor.InterceptPacket(destination, append([]byte(nil), ipPacket...)) {
+			return
+		}
 	}
 	addresses := s.inet4LoopbackAddress
 	if destination.Is6() {

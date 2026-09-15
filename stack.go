@@ -30,6 +30,17 @@ type PacketInterceptMatcher interface {
 	ShouldInterceptPacket(destination netip.Addr) bool
 }
 
+// shouldInterceptPacket reports whether the interceptor wants to inspect a
+// packet bound for destination. A nil interceptor never intercepts; an
+// interceptor without a matcher inspects every packet.
+func shouldInterceptPacket(interceptor PacketInterceptor, destination netip.Addr) bool {
+	if interceptor == nil {
+		return false
+	}
+	matcher, hasMatcher := interceptor.(PacketInterceptMatcher)
+	return !hasMatcher || matcher.ShouldInterceptPacket(destination)
+}
+
 type StackOptions struct {
 	Context                context.Context
 	Tun                    Tun

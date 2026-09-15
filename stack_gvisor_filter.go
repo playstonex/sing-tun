@@ -66,14 +66,6 @@ func (w *networkDispatcherFilter) DeliverNetworkPacket(protocol tcpip.NetworkPro
 	w.NetworkDispatcher.DeliverNetworkPacket(protocol, pkt)
 }
 
-func shouldInterceptPacket(interceptor PacketInterceptor, destination netip.Addr) bool {
-	if interceptor == nil {
-		return false
-	}
-	matcher, hasMatcher := interceptor.(PacketInterceptMatcher)
-	return !hasMatcher || matcher.ShouldInterceptPacket(destination)
-}
-
 func packetBufferBytes(pkt *stack.PacketBuffer) []byte {
 	views := pkt.AsSlices()
 	if len(views) == 0 {
