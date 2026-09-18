@@ -38,6 +38,7 @@ type GVisor struct {
 	handler              Handler
 	logger               logger.Logger
 	packetInterceptor    PacketInterceptor
+	tcpWindowBytes       int
 	stack                *stack.Stack
 	endpoint             stack.LinkEndpoint
 }
@@ -80,6 +81,7 @@ func NewGVisor(
 		handler:              options.Handler,
 		logger:               options.Logger,
 		packetInterceptor:    options.PacketInterceptor,
+		tcpWindowBytes:       options.TCPWindowBytes,
 	}
 	return gStack, nil
 }
@@ -95,7 +97,7 @@ func (t *GVisor) Start() error {
 		Writer:           t.tun,
 		Interceptor:      t.packetInterceptor,
 	}
-	ipStack, err := NewGVisorStackWithOptions(linkEndpoint, nicOptions)
+	ipStack, err := NewGVisorStackWithOptions(linkEndpoint, nicOptions, t.tcpWindowBytes)
 	if err != nil {
 		return err
 	}
@@ -138,10 +140,10 @@ func AddrFromAddress(address tcpip.Address) netip.Addr {
 }
 
 func NewGVisorStack(ep stack.LinkEndpoint) (*stack.Stack, error) {
-	return NewGVisorStackWithOptions(ep, stack.NICOptions{})
+	return NewGVisorStackWithOptions(ep, stack.NICOptions{}, 0)
 }
 
-func NewGVisorStackWithOptions(ep stack.LinkEndpoint, opts stack.NICOptions) (*stack.Stack, error) {
+func NewGVisorStackWithOptions(ep stack.LinkEndpoint, opts stack.NICOptions, tcpWindowBytes int) (*stack.Stack, error) {
 	ipStack := stack.New(stack.Options{
 		NetworkProtocols: []stack.NetworkProtocolFactory{
 			ipv4.NewProtocol,
@@ -164,7 +166,17 @@ func NewGVisorStackWithOptions(ep stack.LinkEndpoint, opts stack.NICOptions) (*s
 	})
 	ipStack.SetSpoofing(DefaultNIC, true)
 	ipStack.SetPromiscuousMode(DefaultNIC, true)
+	// 20KB is sing-tun's long-standing default. It caps single-connection
+	// throughput to roughly window/RTT, which falls off steeply past a few
+	// milliseconds of RTT -- see docs/TUN_STACK_OPTIMIZATION.md step 3/4 in
+	// the mihomo/Violet repo. tcpWindowBytes lets a caller raise it; Max is
+	// set to the same value as Default so TCPModerateReceiveBufferOption's
+	// auto-tuning grows into the caller's chosen ceiling, not silently past
+	// it back down to the built-in 20KB.
 	bufSize := 20 * 1024
+	if tcpWindowBytes > 0 {
+		bufSize = tcpWindowBytes
+	}
 	ipStack.SetTransportProtocolOption(tcp.ProtocolNumber, &tcpip.TCPReceiveBufferSizeRangeOption{
 		Min:     1,
 		Default: bufSize,

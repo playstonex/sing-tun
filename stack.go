@@ -55,6 +55,15 @@ type StackOptions struct {
 	InterfaceFinder        control.InterfaceFinder
 	EnforceBindInterface   bool
 	PacketInterceptor      PacketInterceptor
+	// TCPWindowBytes overrides the gVisor stack's fixed TCP receive/send
+	// buffer size (default 20*1024, stack_gvisor.go's NewGVisorStackWithOptions).
+	// 0 keeps that default. See docs/TUN_STACK_OPTIMIZATION.md step 3/4 in the
+	// mihomo/Violet repo for the throughput-bound arithmetic (throughput ≈
+	// window / RTT) behind why this exists: the fixed 20KB caps single-connection
+	// throughput well below what a real network path allows once RTT grows past
+	// a few milliseconds, and TCPModerateReceiveBufferOption's auto-tuning has
+	// no room to grow past a ceiling that equals its own floor.
+	TCPWindowBytes int
 }
 
 func NewStack(
