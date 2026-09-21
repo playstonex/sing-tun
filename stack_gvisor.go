@@ -166,26 +166,55 @@ func NewGVisorStackWithOptions(ep stack.LinkEndpoint, opts stack.NICOptions, tcp
 	})
 	ipStack.SetSpoofing(DefaultNIC, true)
 	ipStack.SetPromiscuousMode(DefaultNIC, true)
-	// 20KB is sing-tun's long-standing default. It caps single-connection
-	// throughput to roughly window/RTT, which falls off steeply past a few
-	// milliseconds of RTT -- see docs/TUN_STACK_OPTIMIZATION.md step 3/4 in
-	// the mihomo/Violet repo. tcpWindowBytes lets a caller raise it; Max is
-	// set to the same value as Default so TCPModerateReceiveBufferOption's
-	// auto-tuning grows into the caller's chosen ceiling, not silently past
-	// it back down to the built-in 20KB.
-	bufSize := 20 * 1024
-	if tcpWindowBytes > 0 {
-		bufSize = tcpWindowBytes
+	// Default and Max are DELIBERATELY DIFFERENT, and that distinction is the
+	// whole point of this block.
+	//
+	// They used to be equal, which neutered TCPModerateReceiveBufferOption
+	// below: auto-tuning grows a connection's buffer between Default and Max,
+	// so setting them to one value pins every connection at that value and the
+	// tuner has nowhere to go. That forced a choice between two failures, and
+	// both were observed on iOS in one afternoon:
+	//
+	//   - equal and large (32 KB): 208 concurrent connections during a
+	//     speedtest took the Network Extension's footprint to 47 MB and the
+	//     kernel SIGKILLed it for memory.
+	//   - equal and small (20 KB): survived, and collapsed to 3.4 Mbps.
+	//     Single-connection throughput is window/RTT, and 20 KB over the
+	//     ~150 ms path to the proxy is 1.09 Mbps per connection -- three
+	//     active connections measured 3.37 Mbps, which is that arithmetic.
+	//
+	// Separating them dissolves the trade-off instead of choosing a side. The
+	// figure that buys throughput is the TOTAL window across connections
+	// divided by RTT: 100 Mbps at 150 ms needs 1.875 MB in flight IN
+	// AGGREGATE, which is cheap. What was expensive was reserving the ceiling
+	// for every connection whether it had data or not.
+	//
+	// So Default stays at sing-tun's long-standing 20 KB -- every connection
+	// starts there, and the hundreds of short-lived ones a browser opens stay
+	// there -- while Max is the ceiling the handful of bulk transfers may grow
+	// into. Memory then tracks what is actually in flight, which the real
+	// path's bandwidth-delay product already bounds.
+	//
+	// The UNSET case gets a real ceiling rather than inheriting the start size.
+	// Leaving Max at 20 KB when no override is given would make the default
+	// configuration the 3.37 Mbps one, which is how this stack behaved for its
+	// whole history: the 20 KB pin was never a memory decision, it was an
+	// unexamined default that happened to also cap throughput at 20 KB / RTT.
+	const initialWindowBytes = 20 * 1024
+	const defaultMaxWindowBytes = 512 * 1024
+	maxWindowBytes := defaultMaxWindowBytes
+	if tcpWindowBytes > initialWindowBytes {
+		maxWindowBytes = tcpWindowBytes
 	}
 	ipStack.SetTransportProtocolOption(tcp.ProtocolNumber, &tcpip.TCPReceiveBufferSizeRangeOption{
 		Min:     1,
-		Default: bufSize,
-		Max:     bufSize,
+		Default: initialWindowBytes,
+		Max:     maxWindowBytes,
 	})
 	ipStack.SetTransportProtocolOption(tcp.ProtocolNumber, &tcpip.TCPSendBufferSizeRangeOption{
 		Min:     1,
-		Default: bufSize,
-		Max:     bufSize,
+		Default: initialWindowBytes,
+		Max:     maxWindowBytes,
 	})
 	sOpt := tcpip.TCPSACKEnabled(true)
 	ipStack.SetTransportProtocolOption(tcp.ProtocolNumber, &sOpt)
