@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/metacubex/mipstack"
-	"github.com/playstonex/sing-tun/internal/gtcpip/header"
 	E "github.com/metacubex/sing/common/exceptions"
 	"github.com/metacubex/sing/common/logger"
+	"golang.org/x/exp/slices"
 )
 
 type Mipstack struct {
@@ -147,10 +147,12 @@ func (s *Mipstack) readLoop() {
 		offset = 4
 	}
 	buffer := make([]byte, int(s.mtu)+offset)
+	packets := make([][]byte, 1)
 	for {
 		n, err := device.Read(buffer)
 		if n > offset {
-			s.processPacket(buffer[:n], offset)
+			packets[0] = buffer[:n]
+			s.processPackets(packets, offset)
 		}
 		if err != nil {
 			if E.IsClosed(err) {
@@ -162,10 +164,12 @@ func (s *Mipstack) readLoop() {
 }
 
 func (s *Mipstack) wintunLoop(winTun WinTun) {
+	packets := make([][]byte, 1)
 	for {
 		packet, release, err := winTun.ReadPacket()
 		if len(packet) > 0 {
-			s.processPacket(packet, 0)
+			packets[0] = packet
+			s.processPackets(packets, 0)
 		}
 		if release != nil {
 			release()
@@ -186,10 +190,14 @@ func (s *Mipstack) batchLoopLinux(linuxTUN LinuxTUN, batchSize int) {
 		buffers[i] = make([]byte, int(s.mtu)+offset)
 	}
 	sizes := make([]int, len(buffers))
+	packets := make([][]byte, len(buffers))
 	for {
 		n, err := linuxTUN.BatchRead(buffers, offset, sizes)
 		for i := 0; i < n; i++ {
-			s.processPacket(buffers[i][:offset+sizes[i]], offset)
+			packets[i] = buffers[i][:offset+sizes[i]]
+		}
+		if n > 0 {
+			s.processPackets(packets[:n], offset)
 		}
 		if err != nil {
 			if E.IsClosed(err) {
@@ -201,11 +209,17 @@ func (s *Mipstack) batchLoopLinux(linuxTUN LinuxTUN, batchSize int) {
 }
 
 func (s *Mipstack) batchLoopDarwin(darwinTUN DarwinTUN) {
+	packets := make([][]byte, darwinTUN.BatchSize())
 	for {
 		buffers, err := darwinTUN.BatchRead()
-		for _, buffer := range buffers {
-			s.processPacket(buffer.Bytes(), 0)
-			buffer.Release()
+		if len(buffers) > 0 {
+			for i, buffer := range buffers {
+				packets[i] = buffer.Bytes()
+			}
+			s.processPackets(packets[:len(buffers)], 0)
+			for _, buffer := range buffers {
+				buffer.Release()
+			}
 		}
 		if err != nil {
 			if E.IsClosed(err) {
@@ -216,85 +230,107 @@ func (s *Mipstack) batchLoopDarwin(darwinTUN DarwinTUN) {
 	}
 }
 
-// processPacket processes an IP packet beginning at offset. The leading bytes
-// are retained when handing the buffer to mipstack so callers can reuse their
-// existing packet storage without first slicing away device metadata.
-func (s *Mipstack) processPacket(packet []byte, offset int) {
-	ipPacket := packet[offset:]
-	destination, ok := mipsPacketDestination(ipPacket)
-	if !ok {
-		return
-	}
-	// Match sing-tun's LinkEndpointFilter, including reflecting non-unicast
-	// packets unchanged rather than offering them to protocol forwarders.
-	if destination == s.broadcastAddr || !destination.IsGlobalUnicast() {
-		if err := s.writePackets([][]byte{packet}, offset); err != nil {
-			s.logger.Trace(E.Cause(err, "write packet"))
-		}
-		return
-	}
-	// Offer the packet to the interceptor before any stack processing, in the
-	// same position LinkEndpointFilter uses. The buffer is copied because the
-	// read loop reuses it and an interceptor may rewrite or retain the packet.
-	if shouldInterceptPacket(s.packetInterceptor, destination) && len(ipPacket) > 0 {
-		if s.packetInterceptor.InterceptPacket(destination, append([]byte(nil), ipPacket...)) {
-			return
-		}
-	}
-	addresses := s.inet4LoopbackAddress
-	if destination.Is6() {
-		addresses = s.inet6LoopbackAddress
-	}
-	for _, address := range addresses {
-		if address != destination {
+// processPackets consumes packet slice entries beginning at offset. It
+// partitions the slice in place into stack-bound and reflected packets without
+// copying packet contents. Callers must provide exclusive, writable packet
+// buffers until this call returns, after which they may reuse or release them.
+//
+// A configured PacketInterceptor (a playstonex fork feature) is offered each
+// stack-bound packet before it enters mipstack, in the same position
+// LinkEndpointFilter uses; an intercepted packet is dropped from the batch.
+func (s *Mipstack) processPackets(packets [][]byte, offset int) {
+	stackCount, packetCount := 0, 0
+	for _, packet := range packets {
+		ipPacket := packet[offset:]
+		destination, ok := mipsPacketDestination(ipPacket)
+		if !ok {
 			continue
 		}
-		parsed, err := mipstack.ParseIPPacket(ipPacket)
-		if err != nil {
-			return
+
+		addresses := s.inet4LoopbackAddress
+		if destination.Is6() {
+			addresses = s.inet6LoopbackAddress
 		}
-		if !mipsValidLoopbackPacket(parsed) {
-			break
+		reflected := destination == s.broadcastAddr || !destination.IsGlobalUnicast()
+		loopback := !reflected && slices.Contains(addresses, destination)
+
+		// Packets that bypass mipstack still require complete IP validation.
+		if reflected || loopback {
+			parsed, err := mipstack.ParseIPPacket(ipPacket)
+			if err != nil {
+				continue
+			}
+			if loopback && mipsValidLoopbackPacket(parsed) {
+				parsed.Source, parsed.Destination = parsed.Destination, parsed.Source
+				// AppendRawBinary supports overlapping input and output. Swapping
+				// addresses does not change the encoded length, so packet has enough
+				// capacity and its payload stays at the same location.
+				_, err = parsed.AppendRawBinary(packet[:offset])
+				if err != nil {
+					continue
+				}
+				// Keep the original slice length to preserve link-layer padding.
+				// Swapping addresses preserves the TCP pseudo-header sum, including
+				// for fragments; mipstack recalculates the IPv4 header checksum.
+				reflected = true
+			}
 		}
-		responseOffset := offset
-		response := make([]byte, responseOffset+len(ipPacket))
-		copy(response[responseOffset:], ipPacket)
-		if destination.Is4() {
-			ip := header.IPv4(response[responseOffset:])
-			ip.SetSourceAddr(destination)
-			ip.SetDestinationAddr(parsed.Source)
+
+		// Keep the retained prefix laid out as [stack packets][reflected packets].
+		if reflected {
+			packets[packetCount] = packet
 		} else {
-			ip := header.IPv6(response[responseOffset:])
-			ip.SetSourceAddr(destination)
-			ip.SetDestinationAddr(parsed.Source)
+			// Offer stack-bound packets to the interceptor before mipstack sees
+			// them, matching LinkEndpointFilter's position. A copy is made
+			// because the batch buffers are reused after this call returns and
+			// an interceptor may retain or rewrite the packet. An intercepted
+			// packet is dropped from the batch (neither stacked nor reflected).
+			if shouldInterceptPacket(s.packetInterceptor, destination) && len(ipPacket) > 0 {
+				if s.packetInterceptor.InterceptPacket(destination, append([]byte(nil), ipPacket...)) {
+					continue
+				}
+			}
+			if stackCount != packetCount {
+				copy(packets[stackCount+1:packetCount+1], packets[stackCount:packetCount])
+			}
+			packets[stackCount] = packet
+			stackCount++
 		}
-		// Swapping the addresses preserves both the IP checksum and the
-		// TCP pseudo-header sum, also for fragments and extension headers.
-		if err := s.writePackets([][]byte{response}, responseOffset); err != nil {
+		packetCount++
+	}
+
+	if stackCount > 0 {
+		// Invalid packet errors are local to individual datagrams, not fatal device errors.
+		_, _ = s.stack.Write(packets[:stackCount], offset)
+	}
+	if stackCount < packetCount {
+		if err := s.writePackets(packets[stackCount:packetCount], offset); err != nil {
 			s.logger.Trace(E.Cause(err, "write packet"))
 		}
-		return
 	}
-	// Invalid packet errors are local to the datagram, not fatal device errors.
-	_, _ = s.stack.Write([][]byte{packet}, offset)
 }
 
-// Inspect only the base header before non-unicast reflection, just as
-// LinkEndpointFilter does. Full protocol validation belongs to mipstack.
+// mipsPacketDestination extracts only the destination needed to choose between
+// stack delivery and reflection. Full packet validation remains with mipstack
+// unless the packet is about to bypass it.
 func mipsPacketDestination(packet []byte) (netip.Addr, bool) {
-	switch header.IPVersion(packet) {
-	case header.IPv4Version:
-		ip := header.IPv4(packet)
-		if ip.IsValid(len(packet)) {
-			return ip.DestinationAddr(), true
-		}
-	case header.IPv6Version:
-		ip := header.IPv6(packet)
-		if ip.IsValid(len(packet)) {
-			return ip.DestinationAddr(), true
-		}
+	if len(packet) < 1 {
+		return netip.Addr{}, false
 	}
-	return netip.Addr{}, false
+	switch packet[0] >> 4 {
+	case 4:
+		if len(packet) < 20 {
+			return netip.Addr{}, false
+		}
+		return netip.AddrFrom4([4]byte(packet[16:20])), true
+	case 6:
+		if len(packet) < 40 {
+			return netip.Addr{}, false
+		}
+		return netip.AddrFrom16([16]byte(packet[24:40])), true
+	default:
+		return netip.Addr{}, false
+	}
 }
 
 // Validate complete packets before bypassing the stack. Fragment checksums
@@ -422,7 +458,7 @@ func (s *Mipstack) writePackets(packets [][]byte, offset int) error {
 			familyHeader[1] = 0
 			familyHeader[2] = 0
 			familyHeader[3] = 2 // AF_INET on Darwin.
-			if header.IPVersion(ipPacket) == header.IPv6Version {
+			if len(ipPacket) > 0 && ipPacket[0]>>4 == 6 {
 				familyHeader[3] = 30 // AF_INET6 on Darwin, even when tested on another OS.
 			}
 			if _, err := darwin.Write(packet[offset-4:]); err != nil {
