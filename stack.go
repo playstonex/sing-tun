@@ -53,6 +53,7 @@ type StackOptions struct {
 	ForwarderBindInterface bool
 	IncludeAllNetworks     bool
 	InterfaceFinder        control.InterfaceFinder
+	TCPCongestionControl   string
 	EnforceBindInterface   bool
 	PacketInterceptor      PacketInterceptor
 	// TCPWindowBytes overrides the gVisor stack's fixed TCP receive/send
@@ -71,15 +72,7 @@ func NewStack(
 	options StackOptions,
 ) (Stack, error) {
 	switch stack {
-	case "":
-		if options.IncludeAllNetworks {
-			return NewGVisor(options)
-		} else if WithGVisor && !options.TunOptions.GSO {
-			return NewMixed(options)
-		} else {
-			return NewSystem(options)
-		}
-	case "mips":
+	case "", "mips":
 		return NewMipstack(options)
 	case "gvisor":
 		return NewGVisor(options)

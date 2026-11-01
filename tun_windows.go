@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"math"
 	"net"
-	"net/netip"
 	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
 
-	"github.com/metacubex/sing/common"
 	E "github.com/metacubex/sing/common/exceptions"
 	"github.com/metacubex/sing/common/windnsapi"
 
@@ -24,7 +22,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-var TunnelType = "sing-tun"
+var (
+	TunnelType              = "sing-tun"
+	ipv6AllRoutersMulticast = winsys.FWP_BYTE_ARRAY16{ByteArray16: [16]uint8{0xff, 0x02, 15: 0x02}}
+)
 
 type NativeTun struct {
 	adapter     *wintun.Adapter
@@ -79,16 +80,14 @@ func (t *NativeTun) configure() error {
 		if err != nil {
 			return E.Cause(err, "set ipv4 address")
 		}
-		if t.options.AutoRoute && !t.options.EXP_DisableDNSHijack {
-			dnsServers := common.Filter(t.options.DNSServers, netip.Addr.Is4)
-			if len(dnsServers) == 0 && HasNextAddress(t.options.Inet4Address[0], 1) {
-				dnsServers = []netip.Addr{t.options.Inet4Address[0].Addr().Next()}
+		if t.options.DNSModeOrDefault() != DNSModeDisabled {
+			dnsServers, err := t.options.Inet4DNSAddress()
+			if err != nil {
+				return err
 			}
-			if len(dnsServers) > 0 {
-				err = luid.SetDNS(winipcfg.AddressFamily(windows.AF_INET), dnsServers, nil)
-				if err != nil {
-					return E.Cause(err, "set ipv4 dns")
-				}
+			err = luid.SetDNS(winipcfg.AddressFamily(windows.AF_INET), dnsServers, nil)
+			if err != nil {
+				return E.Cause(err, "set ipv4 dns")
 			}
 		} else {
 			err = luid.SetDNS(winipcfg.AddressFamily(windows.AF_INET), nil, nil)
@@ -102,16 +101,14 @@ func (t *NativeTun) configure() error {
 		if err != nil {
 			return E.Cause(err, "set ipv6 address")
 		}
-		if t.options.AutoRoute && !t.options.EXP_DisableDNSHijack {
-			dnsServers := common.Filter(t.options.DNSServers, netip.Addr.Is6)
-			if len(dnsServers) == 0 && HasNextAddress(t.options.Inet6Address[0], 1) {
-				dnsServers = []netip.Addr{t.options.Inet6Address[0].Addr().Next()}
+		if t.options.DNSModeOrDefault() != DNSModeDisabled {
+			dnsServers, err := t.options.Inet6DNSAddress()
+			if err != nil {
+				return err
 			}
-			if len(dnsServers) > 0 {
-				err = luid.SetDNS(winipcfg.AddressFamily(windows.AF_INET6), dnsServers, nil)
-				if err != nil {
-					return E.Cause(err, "set ipv6 dns")
-				}
+			err = luid.SetDNS(winipcfg.AddressFamily(windows.AF_INET6), dnsServers, nil)
+			if err != nil {
+				return E.Cause(err, "set ipv6 dns")
 			}
 		} else {
 			err = luid.SetDNS(winipcfg.AddressFamily(windows.AF_INET6), nil, nil)
@@ -265,6 +262,47 @@ func (t *NativeTun) configure() error {
 		}*/
 
 		if len(t.options.Inet6Address) == 0 {
+			ndpCondition := make([]winsys.FWPM_FILTER_CONDITION0, 4)
+			ndpCondition[0].FieldKey = winsys.FWPM_CONDITION_IP_PROTOCOL
+			ndpCondition[0].MatchType = winsys.FWP_MATCH_EQUAL
+			ndpCondition[0].ConditionValue.Type = winsys.FWP_UINT8
+			ndpCondition[0].ConditionValue.Value = uintptr(winsys.IPPROTO_ICMPV6)
+			ndpCondition[1].FieldKey = winsys.FWPM_CONDITION_ICMP_TYPE
+			ndpCondition[1].MatchType = winsys.FWP_MATCH_EQUAL
+			ndpCondition[1].ConditionValue.Type = winsys.FWP_UINT16
+			ndpCondition[2].FieldKey = winsys.FWPM_CONDITION_ICMP_CODE
+			ndpCondition[2].MatchType = winsys.FWP_MATCH_EQUAL
+			ndpCondition[2].ConditionValue.Type = winsys.FWP_UINT16
+			ndpCondition[2].ConditionValue.Value = 0
+			ndpCondition[3].FieldKey = winsys.FWPM_CONDITION_IP_REMOTE_ADDRESS
+			ndpCondition[3].MatchType = winsys.FWP_MATCH_EQUAL
+			ndpCondition[3].ConditionValue.Type = winsys.FWP_BYTE_ARRAY16_TYPE
+			ndpCondition[3].ConditionValue.Value = uintptr(unsafe.Pointer(&ipv6AllRoutersMulticast))
+			for _, ndpMessage := range []struct {
+				name          string
+				icmpType      uint16
+				numConditions uint32
+			}{
+				{"router solicitation", 133, 4},
+				{"neighbor solicitation", 135, 3},
+				{"neighbor advertisement", 136, 3},
+			} {
+				ndpCondition[1].ConditionValue.Value = uintptr(ndpMessage.icmpType)
+				ndpFilter := winsys.FWPM_FILTER0{}
+				ndpFilter.FilterCondition = &ndpCondition[0]
+				ndpFilter.NumFilterConditions = ndpMessage.numConditions
+				ndpFilter.DisplayData = winsys.CreateDisplayData(TunnelType, "allow ipv6 "+ndpMessage.name)
+				ndpFilter.SubLayerKey = subLayerKey
+				ndpFilter.LayerKey = winsys.FWPM_LAYER_ALE_AUTH_CONNECT_V6
+				ndpFilter.Action.Type = winsys.FWP_ACTION_PERMIT
+				ndpFilter.Weight.Type = winsys.FWP_UINT8
+				ndpFilter.Weight.Value = uintptr(13)
+				err = winsys.FwpmFilterAdd0(engine, &ndpFilter, 0, &filterId)
+				if err != nil {
+					return os.NewSyscallError("FwpmFilterAdd0", err)
+				}
+			}
+
 			blockFilter := winsys.FWPM_FILTER0{}
 			blockFilter.DisplayData = winsys.CreateDisplayData(TunnelType, "block ipv6")
 			blockFilter.SubLayerKey = subLayerKey
@@ -321,7 +359,7 @@ func (t *NativeTun) configure() error {
 			}
 		}
 
-		if !t.options.EXP_DisableDNSHijack {
+		if t.options.DNSModeOrDefault() == DNSModeHijack {
 			blockDNSCondition := make([]winsys.FWPM_FILTER_CONDITION0, 1)
 			blockDNSCondition[0].FieldKey = winsys.FWPM_CONDITION_IP_REMOTE_PORT
 			blockDNSCondition[0].MatchType = winsys.FWP_MATCH_EQUAL
